@@ -1,6 +1,6 @@
 streamlit
 pandas
 numpy
-tensorflow-cpu==2.10.0 # Ganti baris ini
+tensorflow-cpu==2.19.0  # Spesifikasikan versi ini
 scikit-learn
 plotly
