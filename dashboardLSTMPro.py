@@ -12,7 +12,18 @@ import hashlib
 import warnings
 import os
 import time
+
 warnings.filterwarnings('ignore')
+
+# =============================================================================
+# ⚙️ KONFIGURASI APLIKASI GLOBAL (HARUS DI BAGIAN ATAS DAN HANYA SEKALI)
+# =============================================================================
+st.set_page_config(
+    page_title="Industrial Gas Removal Monitoring System",
+    page_icon="🏭",
+    layout="wide",
+    initial_sidebar_state="expanded" # Atur ini sesuai keinginan awal sidebar
+)
 
 # =============================================================================
 # 🔧 KONFIGURASI FILE CSV DAN AUTO-UPDATE
@@ -26,7 +37,9 @@ CSV_FILE_NAME = "data2parfull.csv"  # <-- GANTI DENGAN NAMA FILE CSV ANDA
 CSV_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), CSV_FILE_NAME)
 
 # Interval update default dalam detik (3 jam = 10800 detik)
-DEFAULT_UPDATE_INTERVAL = 60  # 3 jam
+DEFAULT_UPDATE_INTERVAL = 10800  # Default 3 jam
+# Catatan: Untuk debugging, Anda bisa mengubah ini ke 60 (1 menit)
+# DEFAULT_UPDATE_INTERVAL = 60 
 
 # =============================================================================
 # 🔐 SECURE AUTHENTICATION SYSTEM
@@ -96,48 +109,39 @@ def init_session_state():
     if 'selected_interval_label' not in st.session_state:
         st.session_state.selected_interval_label = '3 hours'
 
-def load_csv_automatically():
+# Menggunakan st.cache_data untuk caching data
+# ttl (Time To Live) diatur ke interval update, jadi data akan di-cache selama itu
+@st.cache_data(ttl=DEFAULT_UPDATE_INTERVAL)
+def load_csv_automatically(file_path):
     """
-    Fungsi untuk memuat file CSV secara otomatis
-    Returns: DataFrame jika berhasil, None jika gagal
+    Fungsi untuk memuat file CSV secara otomatis.
+    Menggunakan st.cache_data agar data di-cache selama interval tertentu.
+    Parameter `file_path` ditambahkan agar `st.cache_data` dapat mendeteksi perubahan jika path berubah (walaupun tidak akan di sini).
     """
+    st.sidebar.info(f"⚙️ Loading data from {os.path.basename(file_path)}...")
+    
     try:
-        # Cek apakah file ada
-        if not os.path.exists(CSV_FILE_PATH):
-            st.sidebar.error(f"❌ File tidak ditemukan: {CSV_FILE_NAME}")
+        if not os.path.exists(file_path):
+            st.sidebar.error(f"❌ File tidak ditemukan: {os.path.basename(file_path)}")
             st.sidebar.info("Pastikan file CSV berada di folder yang sama dengan script ini")
             return None
         
-        # Cek waktu modifikasi file
-        file_modified_time = os.path.getmtime(CSV_FILE_PATH)
-        
-        # Jika file sudah dimuat dan tidak berubah, gunakan cache
-        if (st.session_state.last_file_modified is not None and 
-            file_modified_time == st.session_state.last_file_modified and
-            st.session_state.csv_data is not None):
-            return st.session_state.csv_data
-        
-        # Muat file CSV dengan berbagai delimiter
         delimiters = [',', ';', '\t']
         df = None
         
         for delimiter in delimiters:
             try:
-                df = pd.read_csv(CSV_FILE_PATH, sep=delimiter)
-                if len(df.columns) > 1:
+                df = pd.read_csv(file_path, sep=delimiter)
+                if len(df.columns) > 1: # Cek apakah sudah terbaca dengan benar (lebih dari 1 kolom)
                     break
             except Exception:
                 continue
         
         if df is None:
-            st.sidebar.error(f"❌ Gagal membaca file: {CSV_FILE_NAME}")
+            st.sidebar.error(f"❌ Gagal membaca file: {os.path.basename(file_path)}. Coba format delimiter lain.")
             return None
         
-        # Simpan ke session state
-        st.session_state.csv_data = df
-        st.session_state.last_file_modified = file_modified_time
-        st.session_state.last_update_time = datetime.now()
-        
+        st.sidebar.success(f"✅ Data '{os.path.basename(file_path)}' dimuat!")
         return df
         
     except Exception as e:
@@ -146,16 +150,21 @@ def load_csv_automatically():
 
 def check_and_update():
     """
-    Cek apakah sudah waktunya update data
-    Update otomatis jika interval waktu sudah tercapai
+    Cek apakah sudah waktunya update data.
+    Update otomatis jika interval waktu sudah tercapai dan auto-update aktif.
     """
     current_time = datetime.now()
     time_diff = (current_time - st.session_state.last_update_time).total_seconds()
     
-    # Jika sudah melewati interval update dan auto-update aktif
     if time_diff >= st.session_state.update_interval and st.session_state.auto_update_enabled:
         st.session_state.last_update_time = current_time
-        st.session_state.csv_data = None  # Reset cache untuk force reload
+        # Reset cache pada fungsi load_csv_automatically dengan menambahkan unique_key
+        # Ini akan memaksa cache di-invalidate dan fungsi dipanggil ulang
+        # Kita bisa juga menghapus cache secara manual dengan load_csv_automatically.clear()
+        
+        # Untuk Streamlit Cloud, cukup memanggil st.rerun() setelah mengubah
+        # last_update_time akan memicu pemanggilan ulang fungsi cached
+        # karena timestamp yang di-cache di st.session_state.last_update_time berubah
         st.rerun()
 
 def format_time_remaining():
@@ -174,12 +183,7 @@ def format_time_remaining():
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 def login_page():
-    st.set_page_config(
-        page_title="Industrial Gas Removal System",
-        page_icon="🏭",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    # st.set_page_config() dihapus dari sini karena sudah ada di paling atas
     
     # Professional login styling
     st.markdown("""
@@ -304,7 +308,8 @@ def login_page():
                         st.session_state['username'] = username
                         st.session_state['user_info'] = USER_ROLES.get(username, {})
                         st.success("✅ Authentication successful! Loading system...")
-                        st.rerun()
+                        time.sleep(1) # Beri sedikit waktu untuk pesan sukses terlihat
+                        st.rerun() # Memuat ulang aplikasi untuk masuk ke dashboard
                     else:
                         st.error("❌ Invalid credentials. Access denied.")
                 else:
@@ -319,9 +324,11 @@ def login_page():
         """, unsafe_allow_html=True)
 
 def logout():
-    for key in ['authenticated', 'username', 'user_info']:
+    for key in ['authenticated', 'username', 'user_info', 'csv_data', 'last_file_modified', 'last_update_time']:
         if key in st.session_state:
             del st.session_state[key]
+    # Hapus cache st.cache_data agar data dimuat ulang saat login berikutnya
+    load_csv_automatically.clear() 
     st.rerun()
 
 def show_user_panel():
@@ -376,9 +383,9 @@ def show_user_panel():
         
         # Get current interval value and find corresponding label
         current_interval_value = st.session_state.get('update_interval', DEFAULT_UPDATE_INTERVAL)
-        default_index = 5  # Default to 3 hours
         
-        # Find the index of current interval
+        # Ensure default_index is valid
+        default_index = 0
         for idx, (label, value) in enumerate(update_options.items()):
             if value == current_interval_value:
                 default_index = idx
@@ -388,10 +395,17 @@ def show_user_panel():
             "Update Interval",
             options=list(update_options.keys()),
             index=default_index,
+            key="update_interval_selector", # Tambahkan key unik
             help="How often to refresh the data"
         )
         
-        st.session_state.update_interval = update_options[selected_interval]
+        # Pastikan session state update_interval diperbarui hanya jika ada perubahan
+        if update_options[selected_interval] != st.session_state.update_interval:
+            st.session_state.update_interval = update_options[selected_interval]
+            # Clear cache st.cache_data jika interval berubah agar TTL baru diterapkan
+            load_csv_automatically.clear() 
+            st.rerun() # Rerun untuk menerapkan interval baru
+
         st.session_state.selected_interval_label = selected_interval
         
         # Show current status
@@ -403,12 +417,13 @@ def show_user_panel():
         
         # Manual refresh button
         if st.sidebar.button("🔄 Refresh Now", type="secondary"):
-            st.session_state.csv_data = None
-            st.session_state.last_update_time = datetime.now()
-            st.rerun()
+            # Clear cache st.cache_data saat refresh manual
+            load_csv_automatically.clear()
+            st.session_state.last_update_time = datetime.now() # Reset waktu terakhir update
+            st.rerun() # Memuat ulang aplikasi
         
         # Show last update time
-        st.sidebar.markdown(f"**Last Updated:** {st.session_state.last_update_time.strftime('%H:%M:%S')}")
+        st.sidebar.markdown(f"**Last Data Updated:** {st.session_state.last_update_time.strftime('%H:%M:%S')}")
         
         st.sidebar.markdown("---")
         
@@ -436,18 +451,13 @@ def show_user_panel():
 def main_dashboard():
     """Professional Industrial Dashboard with Auto-Update"""
     
-    # Initialize session state
+    # Initialize session state (Pastikan ini dipanggil setiap kali main_dashboard dijalankan)
     init_session_state()
     
-    # Check for auto-update
+    # Check for auto-update (akan memicu st.rerun jika waktunya update)
     check_and_update()
     
-    st.set_page_config(
-        page_title="Industrial Gas Removal Monitoring System",
-        page_icon="🏭",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    # st.set_page_config() dihapus dari sini karena sudah ada di paling atas
     
     # Professional industrial styling
     st.markdown("""
@@ -564,9 +574,11 @@ def main_dashboard():
     
     col1, col2 = st.sidebar.columns(2)
     with col1:
+        # Menentukan nilai default yang valid untuk start_date jika tidak ada data
+        default_start_date = datetime.now().date() - timedelta(days=7)
         start_date = st.date_input(
             "Start Date", 
-            value=datetime.now() - timedelta(days=7),
+            value=default_start_date,
             help="Data collection start date"
         )
     
@@ -598,8 +610,8 @@ def main_dashboard():
     
     show_detailed_table = st.sidebar.checkbox("Show Detailed Data Table", value=False)
     
-    # Load CSV automatically
-    df = load_csv_automatically()
+    # Load CSV using the cached function
+    df = load_csv_automatically(CSV_FILE_PATH)
     
     if df is not None:
         # Data processing
@@ -638,8 +650,9 @@ def main_dashboard():
                     try:
                         parsed_dates = pd.to_datetime(df[timestamp_col])
                     except Exception:
+                        # Fallback jika parsing otomatis gagal
+                        st.sidebar.warning("⚠️ Could not parse timestamp column. Generating timestamps.")
                         parsed_dates = pd.date_range(start=start_date, periods=len(df), freq='H')
-                        st.sidebar.warning("⚠️ Using generated timestamps")
                 
                 df['timestamp'] = parsed_dates
             else:
@@ -653,7 +666,7 @@ def main_dashboard():
             
             # Remove negative values
             if (data < 0).any().any():
-                st.sidebar.warning("⚠️ Negative values detected and removed")
+                st.sidebar.warning("⚠️ Negative values detected and clipped to zero.")
                 data = data.clip(lower=0)
             
             ground_truth = data.values.flatten()
@@ -680,20 +693,40 @@ def main_dashboard():
             predictions = model.predict(X)
             predictions_inv = scaler.inverse_transform(predictions).flatten()
             
-            # Train/test split
-            split_index = int(len(ground_truth) * 0.9)
+            # Train/test split (adjusting for sequence_length offset)
+            # Prediksi selalu lebih pendek dari ground_truth karena windowing
+            # Kita perlu menyelaraskan indeks waktu
+            
+            # Timestamp untuk prediksi dimulai setelah sequence_length pertama
+            pred_timestamps = timestamps[sequence_length:]
+            
+            # Ground truth yang sesuai dengan prediksi
+            ground_truth_for_preds = ground_truth[sequence_length:]
+            
+            # Ambil semua data yang digunakan untuk prediksi dan ground truth yang sesuai
+            actual_test = ground_truth_for_preds
+            pred_test = predictions_inv
+            
+            # Pastikan panjangnya sama
+            if len(actual_test) != len(pred_test):
+                min_len = min(len(actual_test), len(pred_test))
+                actual_test = actual_test[:min_len]
+                pred_test = pred_test[:min_len]
+                pred_timestamps = pred_timestamps[:min_len]
+                st.sidebar.warning("Adjusted prediction/actual array lengths due to mismatch.")
             
             # Calculate metrics
-            actual_test = ground_truth[split_index:]
-            pred_test = predictions_inv[-len(actual_test):]
-            
-            mse = mean_squared_error(actual_test, pred_test)
-            mae = mean_absolute_error(actual_test, pred_test)
-            r2 = r2_score(actual_test, pred_test)
-            
+            if len(actual_test) > 0:
+                mse = mean_squared_error(actual_test, pred_test)
+                mae = mean_absolute_error(actual_test, pred_test)
+                r2 = r2_score(actual_test, pred_test)
+            else:
+                mse, mae, r2 = 0, 0, 0
+                st.warning("Not enough data to calculate performance metrics.")
+                
             # System status determination
-            current_pressure = ground_truth[-1]
-            predicted_pressure = predictions_inv[-1]
+            current_pressure = ground_truth[-1] if len(ground_truth) > 0 else 0
+            predicted_pressure = predictions_inv[-1] if len(predictions_inv) > 0 else 0
             
             if current_pressure > threshold or predicted_pressure > threshold:
                 system_status = "CRITICAL"
@@ -756,19 +789,19 @@ def main_dashboard():
                 st.metric(
                     "Current Pressure", 
                     f"{current_pressure:.4f}",
-                    delta=f"{current_pressure - threshold:.4f}" if current_pressure > threshold else None
+                    delta=f"{(current_pressure - threshold):.4f}" if current_pressure > threshold else "0.0000"
                 )
             
             with col3:
                 st.metric(
-                    "Model Accuracy", 
+                    "Model Accuracy (R²)", 
                     f"{r2*100:.1f}%",
                     delta=f"{(r2-0.8)*100:.1f}%" if r2 > 0.8 else None
                 )
             
             with col4:
                 st.metric(
-                    "Prediction Error", 
+                    "Prediction Error (MAE)", 
                     f"{mae:.4f}",
                     delta=f"{(mae-0.01):.4f}" if mae > 0.01 else None
                 )
@@ -787,11 +820,11 @@ def main_dashboard():
             # Create single comprehensive chart
             fig = go.Figure()
             
-            # Historical data
+            # Historical data (hingga titik awal prediksi)
             fig.add_trace(
                 go.Scatter(
-                    x=timestamps[:split_index],
-                    y=ground_truth[:split_index],
+                    x=timestamps[:sequence_length], # Data yang digunakan untuk melatih/melihat masa lalu
+                    y=ground_truth[:sequence_length],
                     mode='lines',
                     name='Historical Data',
                     line=dict(color='#2E86AB', width=2),
@@ -803,7 +836,7 @@ def main_dashboard():
             # Predicted values
             fig.add_trace(
                 go.Scatter(
-                    x=timestamps[split_index:],
+                    x=pred_timestamps, # Gunakan timestamps yang diselaraskan untuk prediksi
                     y=pred_test,
                     mode='lines',
                     name='Predicted Values',
@@ -811,10 +844,10 @@ def main_dashboard():
                 )
             )
             
-            # Actual values
+            # Actual values (yang sesuai dengan prediksi)
             fig.add_trace(
                 go.Scatter(
-                    x=timestamps[split_index:],
+                    x=pred_timestamps, # Gunakan timestamps yang diselaraskan untuk aktual
                     y=actual_test,
                     mode='lines',
                     name='Actual Values',
@@ -860,32 +893,36 @@ def main_dashboard():
                 # Performance metrics table
                 metrics_df = pd.DataFrame({
                     'Metric': ['Mean Squared Error', 'Mean Absolute Error', 'R² Score', 'Accuracy (±0.01)'],
-                    'Value': [f"{mse:.6f}", f"{mae:.6f}", f"{r2:.4f}", f"{np.mean(np.abs(actual_test - pred_test) <= 0.01)*100:.2f}%"],
+                    'Value': [f"{mse:.6f}", f"{mae:.6f}", f"{r2:.4f}", 
+                              f"{np.mean(np.abs(actual_test - pred_test) <= 0.01)*100:.2f}%" if len(actual_test) > 0 else "N/A"],
                     'Status': ['Good' if mse < 0.001 else 'Acceptable' if mse < 0.01 else 'Poor',
                               'Good' if mae < 0.01 else 'Acceptable' if mae < 0.05 else 'Poor',
                               'Excellent' if r2 > 0.9 else 'Good' if r2 > 0.8 else 'Acceptable',
-                              'Excellent' if np.mean(np.abs(actual_test - pred_test) <= 0.01)*100 > 90 else 'Good']
+                              'Excellent' if np.mean(np.abs(actual_test - pred_test) <= 0.01)*100 > 90 else 'Good'] if len(actual_test) > 0 else ['N/A', 'N/A', 'N/A', 'N/A']
                 })
                 st.dataframe(metrics_df, use_container_width=True)
             
             with col2:
                 # Prediction distribution
-                error = np.abs(actual_test - pred_test)
-                fig_dist = go.Figure()
-                fig_dist.add_trace(go.Histogram(
-                    x=error,
-                    nbinsx=20,
-                    name='Error Distribution',
-                    marker_color='rgba(46, 134, 171, 0.7)'
-                ))
-                fig_dist.update_layout(
-                    title="Prediction Error Distribution",
-                    xaxis_title="Absolute Error",
-                    yaxis_title="Frequency",
-                    template="plotly_white",
-                    height=300
-                )
-                st.plotly_chart(fig_dist, use_container_width=True)
+                if len(actual_test) > 0:
+                    error = np.abs(actual_test - pred_test)
+                    fig_dist = go.Figure()
+                    fig_dist.add_trace(go.Histogram(
+                        x=error,
+                        nbinsx=20,
+                        name='Error Distribution',
+                        marker_color='rgba(46, 134, 171, 0.7)'
+                    ))
+                    fig_dist.update_layout(
+                        title="Prediction Error Distribution",
+                        xaxis_title="Absolute Error",
+                        yaxis_title="Frequency",
+                        template="plotly_white",
+                        height=300
+                    )
+                    st.plotly_chart(fig_dist, use_container_width=True)
+                else:
+                    st.warning("Not enough data to show error distribution.")
             
             # Data table (if enabled)
             if show_detailed_table:
@@ -904,17 +941,19 @@ def main_dashboard():
                 rows_per_page = 20
                 total_pages = (len(detailed_df) - 1) // rows_per_page + 1
                 
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col1:
+                col1_p, col2_p, col3_p = st.columns([1, 2, 1])
+                with col1_p:
                     if st.button("← Previous") and st.session_state.page_num > 0:
                         st.session_state.page_num -= 1
+                        st.rerun() # Rerun untuk update halaman tabel
                 
-                with col2:
+                with col2_p:
                     st.write(f"Page {st.session_state.page_num + 1} of {total_pages}")
                 
-                with col3:
+                with col3_p:
                     if st.button("Next →") and st.session_state.page_num < total_pages - 1:
                         st.session_state.page_num += 1
+                        st.rerun() # Rerun untuk update halaman tabel
                 
                 start_idx = st.session_state.page_num * rows_per_page
                 end_idx = start_idx + rows_per_page
@@ -928,16 +967,16 @@ def main_dashboard():
             st.markdown("### 📤 Data Export")
             
             export_df = pd.DataFrame({
-                'Timestamp': timestamps[split_index:],
+                'Timestamp': pred_timestamps,
                 'Actual_Pressure': actual_test,
                 'Predicted_Pressure': pred_test,
                 'Absolute_Error': np.abs(actual_test - pred_test),
                 'Status': ['Critical' if p > threshold else 'Normal' for p in actual_test]
             })
             
-            col1, col2 = st.columns(2)
+            col_export_1, col_export_2 = st.columns(2)
             
-            with col1:
+            with col_export_1:
                 csv_data = export_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📊 Download Analysis Report (CSV)",
@@ -946,7 +985,7 @@ def main_dashboard():
                     mime="text/csv"
                 )
             
-            with col2:
+            with col_export_2:
                 # Generate summary report
                 report_text = f"""
 Industrial Gas Removal System - Analysis Report
@@ -976,107 +1015,17 @@ MAINTENANCE RECOMMENDATION:
                 """
                 
                 st.download_button(
-                    label="📋 Download Summary Report (TXT)",
+                    label="📄 Download Summary Report (TXT)",
                     data=report_text,
-                    file_name=f"maintenance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    file_name=f"gas_removal_summary_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain"
                 )
-    
-    else:
-        # Welcome screen when no data is loaded
-        st.markdown("""
-        ### 🏭 Welcome to Industrial Gas Removal Monitoring System
-        
-        This advanced predictive maintenance system provides:
-        
-        - **Automatic Data Loading**: CSV file automatically loaded from configured path
-        - **Auto-Refresh**: Data updates automatically at specified intervals
-        - **Real-time Process Monitoring**: Continuous tracking of gas removal system parameters
-        - **Predictive Analytics**: LSTM-based forecasting for maintenance optimization
-        - **Alert Management**: Automated notifications for critical system states
-        - **Performance Analysis**: Comprehensive model evaluation and reporting
-        - **Data Export**: Professional reporting for maintenance records
-        
-        **Current Configuration:**
-        - CSV File: `{}`
-        - Auto-Update: {} ({})
-        - Last Update: {}
-        
-        **To configure data source:**
-        1. Place your CSV file in the same folder as this script
-        2. Update the CSV_FILE_NAME variable in the code
-        3. The system will automatically load and monitor the file
-        4. Configure auto-update settings in the sidebar
-        """.format(
-            CSV_FILE_NAME,
-            "Enabled" if st.session_state.auto_update_enabled else "Disabled",
-            st.session_state.get('selected_interval_label', '3 hours'),
-            st.session_state.last_update_time.strftime('%Y-%m-%d %H:%M:%S')
-        ))
-        
-        # Show error if file not found
-        if not os.path.exists(CSV_FILE_PATH):
-            st.error(f"""
-            ❌ **CSV File Not Found!**
-            
-            Please ensure the file `{CSV_FILE_NAME}` exists in the following location:
-            `{CSV_FILE_PATH}`
-            
-            **Steps to fix:**
-            1. Copy your CSV file to the same folder as this Python script
-            2. Rename it to `{CSV_FILE_NAME}` or update the CSV_FILE_NAME variable in the code
-            3. Refresh the page
-            """)
-        
-        # System architecture diagram
-        st.markdown("### 🔧 System Architecture")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            **Data Input**
-            - Automatic CSV loading
-            - Real-time monitoring
-            - Historical analysis
-            """)
-        
-        with col2:
-            st.markdown("""
-            **AI Processing**
-            - LSTM neural networks
-            - Predictive modeling
-            - Anomaly detection
-            """)
-        
-        with col3:
-            st.markdown("""
-            **Output & Alerts**
-            - Maintenance scheduling
-            - Performance reports
-            - Critical notifications
-            """)
 
 # =============================================================================
-# 🚀 APPLICATION ENTRY POINT
+# 🚀 MAIN APPLICATION ENTRY POINT
 # =============================================================================
 
 def main():
-    """Main application entry point with professional authentication"""
-    
-    # Auto-refresh timer for logged-in users
-    if 'authenticated' in st.session_state and st.session_state['authenticated']:
-        # Add auto-refresh meta tag if enabled
-        if 'auto_update_enabled' in st.session_state and st.session_state.auto_update_enabled:
-            refresh_seconds = st.session_state.get('update_interval', DEFAULT_UPDATE_INTERVAL)
-            st.markdown(
-                f'<meta http-equiv="refresh" content="{refresh_seconds}">',
-                unsafe_allow_html=True
-            )
-    
-    if 'authenticated' not in st.session_state:
-        st.session_state['authenticated'] = False
-    
     if not check_authentication():
         login_page()
     else:
