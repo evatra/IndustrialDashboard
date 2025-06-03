@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+tensorflow # atau tensorflow-cpu jika Anda tidak membutuhkan GPU
+scikit-learn
+plotly
