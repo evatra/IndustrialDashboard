@@ -1,6 +1,6 @@
 streamlit
 pandas
 numpy
-tensorflow # atau tensorflow-cpu jika Anda tidak membutuhkan GPU
+tensorflow-cpu==2.10.0 # Atau versi lain yang Anda tahu stabil
 scikit-learn
 plotly
