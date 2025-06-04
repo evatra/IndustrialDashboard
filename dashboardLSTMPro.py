@@ -158,13 +158,8 @@ def check_and_update():
     
     if time_diff >= st.session_state.update_interval and st.session_state.auto_update_enabled:
         st.session_state.last_update_time = current_time
-        # Reset cache pada fungsi load_csv_automatically dengan menambahkan unique_key
-        # Ini akan memaksa cache di-invalidate dan fungsi dipanggil ulang
-        # Kita bisa juga menghapus cache secara manual dengan load_csv_automatically.clear()
-        
-        # Untuk Streamlit Cloud, cukup memanggil st.rerun() setelah mengubah
-        # last_update_time akan memicu pemanggilan ulang fungsi cached
-        # karena timestamp yang di-cache di st.session_state.last_update_time berubah
+        # Memaksa cache di-invalidate agar data dimuat ulang dari sumber
+        load_csv_automatically.clear() 
         st.rerun()
 
 def format_time_remaining():
@@ -459,87 +454,118 @@ def main_dashboard():
     
     # st.set_page_config() dihapus dari sini karena sudah ada di paling atas
     
-    # Professional industrial styling
-    st.markdown("""
+    # Professional industrial styling (dengan variabel CSS untuk tema gelap/terang)
+    st.markdown(f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
-        .main {
-            background-color: #f8f9fa;
+        :root {{
+            --main-header-start: #1e3c72; /* Dark blue for light theme */
+            --main-header-end: #2a5298;   /* Lighter blue for light theme */
+            
+            --alert-critical-start: #ff7e7e; /* Light red for light theme */
+            --alert-critical-end: #dc3545; /* Darker red for light theme */
+            
+            --alert-warning-start: #ffea99; /* Light yellow for light theme */
+            --alert-warning-end: #ffc107;   /* Darker yellow for light theme */
+            
+            --alert-normal-start: #c3e6cb; /* Light green for light theme */
+            --alert-normal-end: #28a745;   /* Darker green for light theme */
+        }}
+
+        [data-baseweb="theme-provider"][theme-mode="dark"] {{
+            --main-header-start: #0f1c3a; /* Even darker blue for dark theme */
+            --main-header-end: #1a2a4d;   /* Darker blue for dark theme */
+
+            --alert-critical-start: #8b0000; /* Darker red for dark theme */
+            --alert-critical-end: #a00000;   /* Even darker red for dark theme */
+
+            --alert-warning-start: #8b6b00; /* Darker yellow for dark theme */
+            --alert-warning-end: #a07a00;   /* Even darker yellow for dark theme */
+
+            --alert-normal-start: #004d00; /* Darker green for dark theme */
+            --alert-normal-end: #006b00;   /* Even darker green for dark theme */
+        }}
+
+        .main {{
+            background-color: var(--background-color); /* Streamlit's default background */
             font-family: 'Inter', sans-serif;
-        }
+        }}
         
-        .main-header {
-            background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
+        .main-header {{
+            background: linear-gradient(90deg, var(--main-header-start) 0%, var(--main-header-end) 100%);
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             color: white;
             text-align: center;
-        }
+        }}
         
-        .kpi-container {
-            background: white;
+        .kpi-container {{
+            background: var(--secondary-background-color); /* Streamlit's default secondary background */
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-            border-left: 4px solid #1e3c72;
-        }
+            border-left: 4px solid var(--main-header-start); /* Use one of the header colors */
+        }}
         
-        .alert-critical {
-            background-color: #fee;
-            border-left: 4px solid #dc3545;
+        .alert-critical {{
+            background: linear-gradient(90deg, var(--alert-critical-start) 0%, var(--alert-critical-end) 100%);
+            border-left: 4px solid var(--alert-critical-end);
             padding: 15px;
             border-radius: 8px;
             margin: 10px 0;
-        }
+            color: white; /* Text color for dark alert */
+        }}
         
-        .alert-warning {
-            background-color: #fff3cd;
-            border-left: 4px solid #ffc107;
+        .alert-warning {{
+            background: linear-gradient(90deg, var(--alert-warning-start) 0%, var(--alert-warning-end) 100%);
+            border-left: 4px solid var(--alert-warning-end);
             padding: 15px;
             border-radius: 8px;
             margin: 10px 0;
-        }
+            color: #333; /* Dark text for light alert */
+        }}
         
-        .alert-normal {
-            background-color: #d1edff;
-            border-left: 4px solid #28a745;
+        .alert-normal {{
+            background: linear-gradient(90deg, var(--alert-normal-start) 0%, var(--alert-normal-end) 100%);
+            border-left: 4px solid var(--alert-normal-end);
             padding: 15px;
             border-radius: 8px;
             margin: 10px 0;
-        }
+            color: white; /* Text color for dark alert */
+        }}
         
-        .metric-card {
-            background: white;
+        .metric-card {{
+            background: var(--secondary-background-color);
             padding: 15px;
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             text-align: center;
-        }
+        }}
         
-        .status-operational {
-            color: #28a745;
+        .status-operational {{
+            color: var(--alert-normal-end);
             font-weight: 600;
-        }
+        }}
         
-        .status-warning {
-            color: #ffc107;
+        .status-warning {{
+            color: var(--alert-warning-end);
             font-weight: 600;
-        }
+        }}
         
-        .status-critical {
-            color: #dc3545;
+        .status-critical {{
+            color: var(--alert-critical-end);
             font-weight: 600;
-        }
+        }}
         
-        .stPlotlyChart {
-            background: white;
+        .stPlotlyChart {{
+            background: var(--secondary-background-color);
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-        }
+        }}
     </style>
     """, unsafe_allow_html=True)
     
@@ -635,28 +661,33 @@ def main_dashboard():
                 date_formats = [
                     '%d/%m/%Y %H:%M', '%d/%m/%Y %H:%M:%S',
                     '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
-                    '%d-%m-%Y %H:%M', '%m/%d/%Y %H:%M'
+                    '%d-%m-%Y %H:%M', '%m/%d/%Y %H:%M',
+                    '%d/%m/%Y', '%Y-%m-%d' # Tambahkan format tanggal saja jika ada
                 ]
                 
                 parsed_dates = None
                 for date_format in date_formats:
                     try:
                         parsed_dates = pd.to_datetime(df[timestamp_col], format=date_format)
-                        break
+                        if not parsed_dates.isna().all(): # Pastikan setidaknya ada data yang terparse
+                            break
                     except Exception:
                         continue
                 
-                if parsed_dates is None:
+                if parsed_dates is None or parsed_dates.isna().all():
                     try:
-                        parsed_dates = pd.to_datetime(df[timestamp_col])
-                    except Exception:
                         # Fallback jika parsing otomatis gagal
+                        parsed_dates = pd.to_datetime(df[timestamp_col], errors='coerce')
+                        if parsed_dates.isna().all():
+                            raise ValueError("All dates failed to parse")
+                    except Exception:
                         st.sidebar.warning("⚠️ Could not parse timestamp column. Generating timestamps.")
-                        parsed_dates = pd.date_range(start=start_date, periods=len(df), freq='H')
+                        # Asumsi interval data per jam jika tidak ada timestamp
+                        parsed_dates = pd.date_range(start=datetime.now() - timedelta(hours=len(df)-1), periods=len(df), freq='H')
                 
                 df['timestamp'] = parsed_dates
             else:
-                df['timestamp'] = pd.date_range(start=start_date, periods=len(df), freq='H')
+                df['timestamp'] = pd.date_range(start=datetime.now() - timedelta(hours=len(df)-1), periods=len(df), freq='H')
                 st.sidebar.warning("⚠️ No timestamp column found. Using generated timestamps.")
             
             # Clean and prepare data
@@ -669,78 +700,128 @@ def main_dashboard():
                 st.sidebar.warning("⚠️ Negative values detected and clipped to zero.")
                 data = data.clip(lower=0)
             
-            ground_truth = data.values.flatten()
-            timestamps = df['timestamp'].iloc[:len(ground_truth)].tolist()
+            ground_truth_all = data.values.flatten()
+            timestamps_all = df['timestamp'].iloc[:len(ground_truth_all)].tolist()
             
             # Scaling
             scaler = MinMaxScaler(feature_range=(0, 1))
-            scaled_data = scaler.fit_transform(data)
+            scaled_data_all = scaler.fit_transform(data)
             
             # Create sequences for LSTM
             def create_sequences(data, seq_length):
                 sequences = []
-                for i in range(len(data) - seq_length):
+                for i in range(len(data) - seq_length + 1): # +1 agar prediksi bisa dibuat dari sequence terakhir
                     sequences.append(data[i:i+seq_length])
                 return np.array(sequences)
             
-            X = create_sequences(scaled_data, sequence_length)
+            X_all = create_sequences(scaled_data_all, sequence_length)
             
-            if len(X) == 0:
+            if len(X_all) == 0:
                 st.error("❌ Insufficient data for analysis. Please check your CSV file or reduce sequence length.")
                 st.stop()
             
-            # Predictions
-            predictions = model.predict(X)
-            predictions_inv = scaler.inverse_transform(predictions).flatten()
+            # Prediksi untuk data yang ada (last part of historical data)
+            predictions_on_historical = model.predict(X_all)
+            predictions_on_historical_inv = scaler.inverse_transform(predictions_on_historical).flatten()
             
-            # Train/test split (adjusting for sequence_length offset)
-            # Prediksi selalu lebih pendek dari ground_truth karena windowing
-            # Kita perlu menyelaraskan indeks waktu
+            # Sesuaikan ground_truth dan timestamps untuk evaluasi prediksi
+            # Prediksi dimulai dari index `sequence_length` di ground_truth
+            ground_truth_for_preds_eval = ground_truth_all[sequence_length-1:] # Dimulai dari data pertama yang diprediksi
+            pred_timestamps_eval = timestamps_all[sequence_length-1:]
             
-            # Timestamp untuk prediksi dimulai setelah sequence_length pertama
-            pred_timestamps = timestamps[sequence_length:]
-            
-            # Ground truth yang sesuai dengan prediksi
-            ground_truth_for_preds = ground_truth[sequence_length:]
-            
-            # Ambil semua data yang digunakan untuk prediksi dan ground truth yang sesuai
-            actual_test = ground_truth_for_preds
-            pred_test = predictions_inv
+            actual_eval = ground_truth_for_preds_eval[:len(predictions_on_historical_inv)]
+            pred_eval = predictions_on_historical_inv
             
             # Pastikan panjangnya sama
-            if len(actual_test) != len(pred_test):
-                min_len = min(len(actual_test), len(pred_test))
-                actual_test = actual_test[:min_len]
-                pred_test = pred_test[:min_len]
-                pred_timestamps = pred_timestamps[:min_len]
-                st.sidebar.warning("Adjusted prediction/actual array lengths due to mismatch.")
+            if len(actual_eval) != len(pred_eval):
+                min_len_eval = min(len(actual_eval), len(pred_eval))
+                actual_eval = actual_eval[:min_len_eval]
+                pred_eval = pred_eval[:min_len_eval]
+                pred_timestamps_eval = pred_timestamps_eval[:min_len_eval]
             
             # Calculate metrics
-            if len(actual_test) > 0:
-                mse = mean_squared_error(actual_test, pred_test)
-                mae = mean_absolute_error(actual_test, pred_test)
-                r2 = r2_score(actual_test, pred_test)
+            if len(actual_eval) > 0:
+                mse = mean_squared_error(actual_eval, pred_eval)
+                mae = mean_absolute_error(actual_eval, pred_eval)
+                r2 = r2_score(actual_eval, pred_eval)
             else:
                 mse, mae, r2 = 0, 0, 0
                 st.warning("Not enough data to calculate performance metrics.")
-                
-            # System status determination
-            current_pressure = ground_truth[-1] if len(ground_truth) > 0 else 0
-            predicted_pressure = predictions_inv[-1] if len(predictions_inv) > 0 else 0
             
-            if current_pressure > threshold or predicted_pressure > threshold:
+            # =============================================================================
+            # 🔮 PREDIKSI 1 BULAN KE DEPAN
+            # =============================================================================
+            
+            def predict_future(model, last_sequence, scaler, sequence_length, future_steps, freq='H'):
+                """
+                Memprediksi nilai masa depan menggunakan model LSTM.
+                `last_sequence`: Sequence terakhir dari data historis yang diskalakan.
+                `future_steps`: Jumlah langkah ke depan yang akan diprediksi (misal: 30 hari * 24 jam = 720 langkah untuk bulanan).
+                `freq`: Frekuensi data (misal: 'H' untuk jam, 'D' untuk hari).
+                """
+                predicted_values = []
+                current_sequence = last_sequence.copy()
+                
+                for _ in range(future_steps):
+                    # Reshape untuk input model: (1, seq_length, 1)
+                    input_seq = current_sequence.reshape(1, sequence_length, 1)
+                    
+                    # Prediksi satu langkah ke depan
+                    next_pred_scaled = model.predict(input_seq, verbose=0)[0]
+                    predicted_values.append(next_pred_scaled[0]) # Ambil nilai prediksi (karena output juga 1)
+                    
+                    # Geser sequence: hapus elemen pertama, tambahkan prediksi baru
+                    current_sequence = np.append(current_sequence[1:], next_pred_scaled[0])
+                
+                # Inverse transform untuk mendapatkan nilai sebenarnya
+                predicted_values_inv = scaler.inverse_transform(np.array(predicted_values).reshape(-1, 1)).flatten()
+                return predicted_values_inv
+
+            # Tentukan berapa banyak langkah ke depan (1 bulan)
+            # Asumsi data hourly: 30 hari * 24 jam = 720 langkah
+            future_steps_1_month = 30 * 24 
+            
+            # Dapatkan sequence terakhir dari data historis yang diskalakan
+            last_sequence = scaled_data_all[-sequence_length:]
+            
+            # Prediksi masa depan
+            future_predictions_inv = predict_future(model, last_sequence, scaler, sequence_length, future_steps_1_month)
+            
+            # Buat timestamps untuk prediksi masa depan
+            last_timestamp = timestamps_all[-1]
+            future_timestamps = pd.date_range(start=last_timestamp + timedelta(hours=1), 
+                                              periods=future_steps_1_month, freq='H').tolist()
+            
+            # =============================================================================
+            # 🚨 SYSTEM STATUS & PREDICTIVE ALERTING
+            # =============================================================================
+
+            current_pressure = ground_truth_all[-1] if len(ground_truth_all) > 0 else 0
+            
+            # Gunakan prediksi terakhir dari data historis sebagai 'predicted_pressure' saat ini
+            predicted_pressure_now = predictions_on_historical_inv[-1] if len(predictions_on_historical_inv) > 0 else 0
+            
+            system_status = "OPERATIONAL"
+            status_color = "status-operational"
+            alert_class = "alert-normal"
+            
+            predicted_breach_time = None
+
+            # Cek apakah prediksi masa depan akan menyentuh threshold
+            for i, val in enumerate(future_predictions_inv):
+                if val >= threshold:
+                    predicted_breach_time = future_timestamps[i]
+                    break
+            
+            if current_pressure > threshold or predicted_pressure_now > threshold:
                 system_status = "CRITICAL"
                 status_color = "status-critical"
                 alert_class = "alert-critical"
-            elif current_pressure > threshold * 0.8 or predicted_pressure > threshold * 0.8:
+            elif current_pressure > threshold * 0.8 or predicted_pressure_now > threshold * 0.8 or predicted_breach_time:
                 system_status = "WARNING"
                 status_color = "status-warning"
                 alert_class = "alert-warning"
-            else:
-                system_status = "OPERATIONAL"
-                status_color = "status-operational"
-                alert_class = "alert-normal"
-            
+
             # =============================================================================
             # 📊 MAIN DASHBOARD DISPLAY
             # =============================================================================
@@ -752,17 +833,20 @@ def main_dashboard():
                     <h3>🚨 CRITICAL ALERT</h3>
                     <p><strong>Immediate maintenance required!</strong><br>
                     Current pressure: {current_pressure:.4f}<br>
-                    Predicted pressure: {predicted_pressure:.4f}<br>
+                    Predicted pressure (current moment): {predicted_pressure_now:.4f}<br>
                     Threshold: {threshold:.4f}</p>
                 </div>
                 """, unsafe_allow_html=True)
             elif system_status == "WARNING":
+                breach_message = ""
+                if predicted_breach_time:
+                    breach_message = f"<br><strong>Predicted to reach threshold by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M')}</strong>"
                 st.markdown(f"""
                 <div class="{alert_class}">
                     <h3>⚠️ WARNING</h3>
                     <p><strong>System approaching critical levels.</strong><br>
                     Schedule maintenance within 24 hours.<br>
-                    Current pressure: {current_pressure:.4f}</p>
+                    Current pressure: {current_pressure:.4f}{breach_message}</p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
@@ -815,16 +899,16 @@ def main_dashboard():
                 )
             
             # Main visualization
-            st.markdown("### 📈 Process Monitoring & Prediction")
+            st.markdown("### 📈 Process Monitoring & Prediction (Including 1-Month Forecast)")
             
             # Create single comprehensive chart
             fig = go.Figure()
             
-            # Historical data (hingga titik awal prediksi)
+            # Historical Data (All available data)
             fig.add_trace(
                 go.Scatter(
-                    x=timestamps[:sequence_length], # Data yang digunakan untuk melatih/melihat masa lalu
-                    y=ground_truth[:sequence_length],
+                    x=timestamps_all, 
+                    y=ground_truth_all,
                     mode='lines',
                     name='Historical Data',
                     line=dict(color='#2E86AB', width=2),
@@ -833,25 +917,25 @@ def main_dashboard():
                 )
             )
             
-            # Predicted values
+            # Predicted values on historical data (overlay on the last part of historical)
             fig.add_trace(
                 go.Scatter(
-                    x=pred_timestamps, # Gunakan timestamps yang diselaraskan untuk prediksi
-                    y=pred_test,
+                    x=pred_timestamps_eval, 
+                    y=pred_eval,
                     mode='lines',
-                    name='Predicted Values',
-                    line=dict(color='#A23B72', width=3, dash='dash')
+                    name='Model Prediction (Historical)',
+                    line=dict(color='#A23B72', width=2, dash='dash')
                 )
             )
-            
-            # Actual values (yang sesuai dengan prediksi)
+
+            # Future Predictions (1 Month)
             fig.add_trace(
                 go.Scatter(
-                    x=pred_timestamps, # Gunakan timestamps yang diselaraskan untuk aktual
-                    y=actual_test,
+                    x=future_timestamps,
+                    y=future_predictions_inv,
                     mode='lines',
-                    name='Actual Values',
-                    line=dict(color='#F18F01', width=2)
+                    name=f'Future Prediction ({future_steps_1_month} steps)',
+                    line=dict(color='#00CC96', width=3, dash='dot') # Warna baru untuk prediksi masa depan
                 )
             )
             
@@ -894,18 +978,18 @@ def main_dashboard():
                 metrics_df = pd.DataFrame({
                     'Metric': ['Mean Squared Error', 'Mean Absolute Error', 'R² Score', 'Accuracy (±0.01)'],
                     'Value': [f"{mse:.6f}", f"{mae:.6f}", f"{r2:.4f}", 
-                              f"{np.mean(np.abs(actual_test - pred_test) <= 0.01)*100:.2f}%" if len(actual_test) > 0 else "N/A"],
+                              f"{np.mean(np.abs(actual_eval - pred_eval) <= 0.01)*100:.2f}%" if len(actual_eval) > 0 else "N/A"],
                     'Status': ['Good' if mse < 0.001 else 'Acceptable' if mse < 0.01 else 'Poor',
                               'Good' if mae < 0.01 else 'Acceptable' if mae < 0.05 else 'Poor',
                               'Excellent' if r2 > 0.9 else 'Good' if r2 > 0.8 else 'Acceptable',
-                              'Excellent' if np.mean(np.abs(actual_test - pred_test) <= 0.01)*100 > 90 else 'Good'] if len(actual_test) > 0 else ['N/A', 'N/A', 'N/A', 'N/A']
+                              'Excellent' if np.mean(np.abs(actual_eval - pred_eval) <= 0.01)*100 > 90 else 'Good'] if len(actual_eval) > 0 else ['N/A', 'N/A', 'N/A', 'N/A']
                 })
                 st.dataframe(metrics_df, use_container_width=True)
             
             with col2:
                 # Prediction distribution
-                if len(actual_test) > 0:
-                    error = np.abs(actual_test - pred_test)
+                if len(actual_eval) > 0:
+                    error = np.abs(actual_eval - pred_eval)
                     fig_dist = go.Figure()
                     fig_dist.add_trace(go.Histogram(
                         x=error,
@@ -928,10 +1012,15 @@ def main_dashboard():
             if show_detailed_table:
                 st.markdown("### 📋 Detailed Process Data")
                 
+                # Combine historical and future data for the table
+                full_timestamps = timestamps_all + future_timestamps
+                full_pressures = ground_truth_all.tolist() + future_predictions_inv.tolist()
+
                 detailed_df = pd.DataFrame({
-                    'Timestamp': timestamps,
-                    'Pressure': ground_truth,
-                    'Status': ['Normal' if p < threshold else 'Critical' for p in ground_truth]
+                    'Timestamp': full_timestamps,
+                    'Pressure': full_pressures,
+                    'Type': ['Historical'] * len(ground_truth_all) + ['Predicted'] * len(future_predictions_inv),
+                    'Status': ['Normal' if p < threshold else 'Critical' for p in full_pressures]
                 })
                 
                 # Pagination
@@ -967,12 +1056,22 @@ def main_dashboard():
             st.markdown("### 📤 Data Export")
             
             export_df = pd.DataFrame({
-                'Timestamp': pred_timestamps,
-                'Actual_Pressure': actual_test,
-                'Predicted_Pressure': pred_test,
-                'Absolute_Error': np.abs(actual_test - pred_test),
-                'Status': ['Critical' if p > threshold else 'Normal' for p in actual_test]
+                'Timestamp_Actual': pred_timestamps_eval,
+                'Actual_Pressure': actual_eval,
+                'Predicted_Pressure': pred_eval,
+                'Absolute_Error': np.abs(actual_eval - pred_eval),
+                'Status': ['Critical' if p > threshold else 'Normal' for p in actual_eval]
             })
+
+            # Tambahkan data prediksi masa depan ke export_df
+            future_export_df = pd.DataFrame({
+                'Timestamp_Actual': future_timestamps,
+                'Actual_Pressure': np.nan, # Tidak ada aktual untuk masa depan
+                'Predicted_Pressure': future_predictions_inv,
+                'Absolute_Error': np.nan,
+                'Status': ['Critical' if p > threshold else 'Normal' for p in future_predictions_inv]
+            })
+            export_df = pd.concat([export_df, future_export_df], ignore_index=True)
             
             col_export_1, col_export_2 = st.columns(2)
             
@@ -1009,7 +1108,7 @@ DATA SOURCE:
 MAINTENANCE RECOMMENDATION:
 {
 "Immediate maintenance required - System critical!" if system_status == "CRITICAL" else
-"Schedule maintenance within 24 hours" if system_status == "WARNING" else
+"Schedule maintenance within 24 hours" + (f" (Predicted breach by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M')})" if predicted_breach_time else "") if system_status == "WARNING" else
 "No immediate maintenance required"
 }
                 """
