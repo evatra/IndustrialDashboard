@@ -4,3 +4,4 @@ numpy
 tensorflow-cpu==2.19.0  # Spesifikasikan versi ini
 scikit-learn
 plotly
+pytz
