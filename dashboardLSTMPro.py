@@ -12,6 +12,7 @@ import hashlib
 import warnings
 import os
 import time
+import pytz # Import pytz for timezone handling
 
 warnings.filterwarnings('ignore')
 
@@ -40,6 +41,9 @@ CSV_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), CSV_FIL
 DEFAULT_UPDATE_INTERVAL = 10800  # Default 3 jam
 # Catatan: Untuk debugging, Anda bisa mengubah ini ke 60 (1 menit)
 # DEFAULT_UPDATE_INTERVAL = 60 
+
+# Define the target timezone (Indonesia/Jakarta for WIB)
+INDONESIA_TIMEZONE = pytz.timezone('Asia/Jakarta')
 
 # =============================================================================
 # 🔐 SECURE AUTHENTICATION SYSTEM
@@ -89,10 +93,14 @@ def authenticate_user(username, password):
 # 🔄 AUTO-UPDATE FUNCTIONS
 # =============================================================================
 
+def get_current_localized_time():
+    """Get the current time localized to the Indonesia timezone."""
+    return datetime.now(INDONESIA_TIMEZONE)
+
 def init_session_state():
     """Initialize session state variables for auto-update functionality"""
     if 'last_update_time' not in st.session_state:
-        st.session_state.last_update_time = datetime.now()
+        st.session_state.last_update_time = get_current_localized_time()
     
     if 'update_interval' not in st.session_state:
         st.session_state.update_interval = DEFAULT_UPDATE_INTERVAL
@@ -153,7 +161,7 @@ def check_and_update():
     Cek apakah sudah waktunya update data.
     Update otomatis jika interval waktu sudah tercapai dan auto-update aktif.
     """
-    current_time = datetime.now()
+    current_time = get_current_localized_time()
     time_diff = (current_time - st.session_state.last_update_time).total_seconds()
     
     if time_diff >= st.session_state.update_interval and st.session_state.auto_update_enabled:
@@ -164,7 +172,7 @@ def check_and_update():
 
 def format_time_remaining():
     """Format waktu yang tersisa sampai update berikutnya"""
-    current_time = datetime.now()
+    current_time = get_current_localized_time()
     time_diff = (current_time - st.session_state.last_update_time).total_seconds()
     time_remaining = st.session_state.update_interval - time_diff
     
@@ -414,11 +422,11 @@ def show_user_panel():
         if st.sidebar.button("🔄 Refresh Now", type="secondary"):
             # Clear cache st.cache_data saat refresh manual
             load_csv_automatically.clear()
-            st.session_state.last_update_time = datetime.now() # Reset waktu terakhir update
+            st.session_state.last_update_time = get_current_localized_time() # Reset waktu terakhir update
             st.rerun() # Memuat ulang aplikasi
         
         # Show last update time
-        st.sidebar.markdown(f"**Last Data Updated:** {st.session_state.last_update_time.strftime('%H:%M:%S')}")
+        st.sidebar.markdown(f"**Last Data Updated:** {st.session_state.last_update_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         st.sidebar.markdown("---")
         
@@ -428,9 +436,11 @@ def show_user_panel():
         
         if os.path.exists(CSV_FILE_PATH):
             file_size = os.path.getsize(CSV_FILE_PATH) / 1024  # KB
-            file_modified = datetime.fromtimestamp(os.path.getmtime(CSV_FILE_PATH))
+            # Convert file modified time to localized time
+            file_modified_utc = datetime.fromtimestamp(os.path.getmtime(CSV_FILE_PATH), pytz.utc)
+            file_modified_local = file_modified_utc.astimezone(INDONESIA_TIMEZONE)
             st.sidebar.markdown(f"**Size:** {file_size:.2f} KB")
-            st.sidebar.markdown(f"**Modified:** {file_modified.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.sidebar.markdown(f"**Modified:** {file_modified_local.strftime('%Y-%m-%d %H:%M:%S %Z%z')}") # Add timezone info
         else:
             st.sidebar.error("File not found!")
         
@@ -601,7 +611,7 @@ def main_dashboard():
     col1, col2 = st.sidebar.columns(2)
     with col1:
         # Menentukan nilai default yang valid untuk start_date jika tidak ada data
-        default_start_date = datetime.now().date() - timedelta(days=7)
+        default_start_date = get_current_localized_time().date() - timedelta(days=7)
         start_date = st.date_input(
             "Start Date", 
             value=default_start_date,
@@ -668,29 +678,34 @@ def main_dashboard():
                 parsed_dates = None
                 for date_format in date_formats:
                     try:
-                        parsed_dates = pd.to_datetime(df[timestamp_col], format=date_format)
-                        if not parsed_dates.isna().all(): # Pastikan setidaknya ada data yang terparse
+                        # Attempt to parse as naive datetime first
+                        temp_dates = pd.to_datetime(df[timestamp_col], format=date_format)
+                        if not temp_dates.isna().all():
+                            # Localize to Indonesia timezone if successfully parsed
+                            parsed_dates = temp_dates.dt.tz_localize(INDONESIA_TIMEZONE, errors='coerce')
                             break
                     except Exception:
                         continue
                 
                 if parsed_dates is None or parsed_dates.isna().all():
                     try:
-                        # Fallback jika parsing otomatis gagal
-                        parsed_dates = pd.to_datetime(df[timestamp_col], errors='coerce')
-                        if parsed_dates.isna().all():
+                        # Fallback if parsing with explicit format fails, try inferring
+                        temp_dates = pd.to_datetime(df[timestamp_col], errors='coerce')
+                        if temp_dates.isna().all():
                             raise ValueError("All dates failed to parse")
+                        # Localize inferred dates
+                        parsed_dates = temp_dates.dt.tz_localize(INDONESIA_TIMEZONE, errors='coerce')
                     except Exception:
-                        st.sidebar.warning("⚠️ Could not parse timestamp column. Generating timestamps.")
-                        # Asumsi interval data per jam jika tidak ada timestamp
-                        parsed_dates = pd.date_range(start=datetime.now() - timedelta(hours=len(df)-1), periods=len(df), freq='H')
+                        st.sidebar.warning("⚠️ Could not parse timestamp column. Generating timestamps and localizing.")
+                        # Asumsi interval data per jam jika tidak ada timestamp, dan lokal ke Asia/Jakarta
+                        parsed_dates = pd.date_range(start=get_current_localized_time() - timedelta(hours=len(df)-1), periods=len(df), freq='H', tz=INDONESIA_TIMEZONE)
                 
                 df['timestamp'] = parsed_dates
             else:
-                df['timestamp'] = pd.date_range(start=datetime.now() - timedelta(hours=len(df)-1), periods=len(df), freq='H')
-                st.sidebar.warning("⚠️ No timestamp column found. Using generated timestamps.")
+                df['timestamp'] = pd.date_range(start=get_current_localized_time() - timedelta(hours=len(df)-1), periods=len(df), freq='H', tz=INDONESIA_TIMEZONE)
+                st.sidebar.warning("⚠️ No timestamp column found. Using generated localized timestamps.")
             
-            # Clean and prepare data
+           # Clean and prepare data
             data = df[[pressure_col]].copy()
             data = data.apply(lambda x: pd.to_numeric(x.astype(str).str.replace(',', '.'), errors='coerce'))
             data = data.dropna()
@@ -703,61 +718,98 @@ def main_dashboard():
             ground_truth_all = data.values.flatten()
             timestamps_all = df['timestamp'].iloc[:len(ground_truth_all)].tolist()
             
-            # Scaling
+            # Scaling - Pindahkan ini ke atas, sebelum digunakan
             scaler = MinMaxScaler(feature_range=(0, 1))
             scaled_data_all = scaler.fit_transform(data)
             
-            # Create sequences for LSTM
+            # === START: Perubahan untuk pemisahan data training/testing dan evaluasi ===
+            # Split data into training and testing sets (e.g., 80% train, 20% test)
+            train_size = int(len(scaled_data_all) * 0.8) # scaled_data_all sudah terdefinisi di sini
+            
+            train_data = scaled_data_all[:train_size]
+            test_data = scaled_data_all[train_size:] # Data yang belum pernah dilihat model untuk evaluasi
+            
+            # Create sequences for training and testing
             def create_sequences(data, seq_length):
                 sequences = []
-                for i in range(len(data) - seq_length + 1): # +1 agar prediksi bisa dibuat dari sequence terakhir
+                targets = []
+                for i in range(len(data) - seq_length): # -seq_length karena kita memprediksi 1 langkah ke depan dari sequence_length
                     sequences.append(data[i:i+seq_length])
-                return np.array(sequences)
-            
-            X_all = create_sequences(scaled_data_all, sequence_length)
-            
-            if len(X_all) == 0:
-                st.error("❌ Insufficient data for analysis. Please check your CSV file or reduce sequence length.")
-                st.stop()
-            
-            # Prediksi untuk data yang ada (last part of historical data)
-            predictions_on_historical = model.predict(X_all)
-            predictions_on_historical_inv = scaler.inverse_transform(predictions_on_historical).flatten()
-            
-            # Sesuaikan ground_truth dan timestamps untuk evaluasi prediksi
-            # Prediksi dimulai dari index `sequence_length` di ground_truth
-            ground_truth_for_preds_eval = ground_truth_all[sequence_length-1:] # Dimulai dari data pertama yang diprediksi
-            pred_timestamps_eval = timestamps_all[sequence_length-1:]
-            
-            actual_eval = ground_truth_for_preds_eval[:len(predictions_on_historical_inv)]
-            pred_eval = predictions_on_historical_inv
-            
-            # Pastikan panjangnya sama
-            if len(actual_eval) != len(pred_eval):
-                min_len_eval = min(len(actual_eval), len(pred_eval))
-                actual_eval = actual_eval[:min_len_eval]
-                pred_eval = pred_eval[:min_len_eval]
-                pred_timestamps_eval = pred_timestamps_eval[:min_len_eval]
-            
-            # Calculate metrics
-            if len(actual_eval) > 0:
-                mse = mean_squared_error(actual_eval, pred_eval)
-                mae = mean_absolute_error(actual_eval, pred_eval)
-                r2 = r2_score(actual_eval, pred_eval)
+                    targets.append(data[i+seq_length]) # Target adalah nilai setelah sequence
+                return np.array(sequences), np.array(targets)
+
+            X_train, y_train = create_sequences(train_data, sequence_length)
+            X_test, y_test = create_sequences(test_data, sequence_length) # Gunakan data tes
+
+            # Lakukan prediksi pada data tes
+            if len(X_test) > 0:
+                predictions_on_test = model.predict(X_test)
+                predictions_on_test_inv = scaler.inverse_transform(predictions_on_test).flatten()
+                actual_test_inv = scaler.inverse_transform(y_test).flatten()
+                
+                # Timestamps untuk data tes yang diprediksi
+                # Ini adalah timestamps untuk y_test
+                test_timestamps = timestamps_all[train_size + sequence_length:]
+                
+                # Pastikan panjangnya sama
+                if len(actual_test_inv) != len(predictions_on_test_inv):
+                    min_len_test = min(len(actual_test_inv), len(predictions_on_test_inv))
+                    actual_test_inv = actual_test_inv[:min_len_test]
+                    predictions_on_test_inv = predictions_on_test_inv[:min_len_test]
+                    test_timestamps = test_timestamps[:min_len_test]
+
+                # Calculate metrics on the TEST SET
+                mse = mean_squared_error(actual_test_inv, predictions_on_test_inv)
+                mae = mean_absolute_error(actual_test_inv, predictions_on_test_inv)
+                r2 = r2_score(actual_test_inv, predictions_on_test_inv)
+                
+                # Akurasi (sesuai definisi Anda: dalam +/- 0.01 dari nilai aktual)
+                accuracy_tolerance = 0.01
+                accuracy = np.mean(np.abs(actual_test_inv - predictions_on_test_inv) <= accuracy_tolerance) * 100
+                
             else:
-                mse, mae, r2 = 0, 0, 0
-                st.warning("Not enough data to calculate performance metrics.")
+                mse, mae, r2, accuracy = 0, 0, 0, 0
+                st.warning("Insufficient data for testing. Metrics set to 0. Please ensure enough data for training and testing after splitting.")
+            
+            # Untuk visualisasi historis, gunakan semua data
+            ground_truth_for_chart = ground_truth_all
+            timestamps_for_chart = timestamps_all
+            
+            # Untuk plotting prediksi pada data historis, ambil prediksi terakhir dari training/testing
+            # atau jika tidak ada split, gunakan 'predictions_on_historical_inv' yang lama
+            # Untuk tampilan yang benar, kita harus memplot aktual dan prediksinya
+            # Saya akan mempertahankan 'predictions_on_historical_inv' Anda yang lama untuk visualisasi,
+            # tetapi akurasi dihitung dari data test.
+            
+            # Jika Anda ingin menunjukkan prediksi model pada seluruh data historis untuk visualisasi,
+            # Anda perlu membuat X_all_viz dan melakukan prediksi pada itu.
+            # Ubah pemanggilan create_sequences agar sesuai dengan definisi baru (dengan target)
+            X_all_viz_data, y_all_viz_data = create_sequences(scaled_data_all, sequence_length)
+            
+            if len(X_all_viz_data) > 0: # Menggunakan X_all_viz_data
+                predictions_on_all_viz = model.predict(X_all_viz_data) # Menggunakan X_all_viz_data
+                predictions_on_all_viz_inv = scaler.inverse_transform(predictions_on_all_viz).flatten()
+                # Timestamps untuk prediksi pada semua data (dimulai dari sequence_length)
+                timestamps_for_all_predictions_viz = timestamps_all[sequence_length:]
+                actual_for_all_predictions_viz = scaler.inverse_transform(y_all_viz_data).flatten() # Menggunakan y_all_viz_data
+            else:
+                predictions_on_all_viz_inv = []
+                timestamps_for_all_predictions_viz = []
+                actual_for_all_predictions_viz = []
+
+            # === END: Perubahan untuk pemisahan data training/testing dan evaluasi ===
             
             # =============================================================================
             # 🔮 PREDIKSI 1 BULAN KE DEPAN
             # =============================================================================
             
-            def predict_future(model, last_sequence, scaler, sequence_length, future_steps, freq='H'):
+            def predict_future(model, last_sequence, scaler, sequence_length, future_steps, freq='H', timezone=None):
                 """
                 Memprediksi nilai masa depan menggunakan model LSTM.
                 `last_sequence`: Sequence terakhir dari data historis yang diskalakan.
                 `future_steps`: Jumlah langkah ke depan yang akan diprediksi (misal: 30 hari * 24 jam = 720 langkah untuk bulanan).
                 `freq`: Frekuensi data (misal: 'H' untuk jam, 'D' untuk hari).
+                `timezone`: Timezone untuk timestamp yang akan dibuat.
                 """
                 predicted_values = []
                 current_sequence = last_sequence.copy()
@@ -785,12 +837,12 @@ def main_dashboard():
             last_sequence = scaled_data_all[-sequence_length:]
             
             # Prediksi masa depan
-            future_predictions_inv = predict_future(model, last_sequence, scaler, sequence_length, future_steps_1_month)
+            future_predictions_inv = predict_future(model, last_sequence, scaler, sequence_length, future_steps_1_month, timezone=INDONESIA_TIMEZONE)
             
-            # Buat timestamps untuk prediksi masa depan
+            # Buat timestamps untuk prediksi masa depan, pastikan berzona waktu
             last_timestamp = timestamps_all[-1]
             future_timestamps = pd.date_range(start=last_timestamp + timedelta(hours=1), 
-                                              periods=future_steps_1_month, freq='H').tolist()
+                                              periods=future_steps_1_month, freq='H', tz=INDONESIA_TIMEZONE).tolist()
             
             # =============================================================================
             # 🚨 SYSTEM STATUS & PREDICTIVE ALERTING
@@ -799,7 +851,8 @@ def main_dashboard():
             current_pressure = ground_truth_all[-1] if len(ground_truth_all) > 0 else 0
             
             # Gunakan prediksi terakhir dari data historis sebagai 'predicted_pressure' saat ini
-            predicted_pressure_now = predictions_on_historical_inv[-1] if len(predictions_on_historical_inv) > 0 else 0
+            # Prediksi ini dari test set
+            predicted_pressure_now = predictions_on_test_inv[-1] if len(predictions_on_test_inv) > 0 else 0
             
             system_status = "OPERATIONAL"
             status_color = "status-operational"
@@ -840,7 +893,8 @@ def main_dashboard():
             elif system_status == "WARNING":
                 breach_message = ""
                 if predicted_breach_time:
-                    breach_message = f"<br><strong>Predicted to reach threshold by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M')}</strong>"
+                    # Ensure breach time is formatted with timezone info
+                    breach_message = f"<br><strong>Predicted to reach threshold by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M %Z%z')}</strong>"
                 st.markdown(f"""
                 <div class="{alert_class}">
                     <h3>⚠️ WARNING</h3>
@@ -907,8 +961,8 @@ def main_dashboard():
             # Historical Data (All available data)
             fig.add_trace(
                 go.Scatter(
-                    x=timestamps_all, 
-                    y=ground_truth_all,
+                    x=timestamps_for_chart, 
+                    y=ground_truth_for_chart,
                     mode='lines',
                     name='Historical Data',
                     line=dict(color='#2E86AB', width=2),
@@ -918,12 +972,13 @@ def main_dashboard():
             )
             
             # Predicted values on historical data (overlay on the last part of historical)
+            # Ini adalah prediksi pada seluruh data untuk visualisasi, bukan untuk metrik.
             fig.add_trace(
                 go.Scatter(
-                    x=pred_timestamps_eval, 
-                    y=pred_eval,
+                    x=timestamps_for_all_predictions_viz, 
+                    y=predictions_on_all_viz_inv,
                     mode='lines',
-                    name='Model Prediction (Historical)',
+                    name='Model Prediction (Historical Viz)',
                     line=dict(color='#A23B72', width=2, dash='dash')
                 )
             )
@@ -963,7 +1018,8 @@ def main_dashboard():
                     y=1.02,
                     xanchor="right",
                     x=1
-                )
+                ),
+                xaxis=dict(tickformat="%Y-%m-%d %H:%M:%S") # Ensure x-axis shows full timestamp
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -976,20 +1032,20 @@ def main_dashboard():
             with col1:
                 # Performance metrics table
                 metrics_df = pd.DataFrame({
-                    'Metric': ['Mean Squared Error', 'Mean Absolute Error', 'R² Score', 'Accuracy (±0.01)'],
+                    'Metric': ['Mean Squared Error (Test)', 'Mean Absolute Error (Test)', 'R² Score (Test)', f'Accuracy (±{accuracy_tolerance}) (Test)'],
                     'Value': [f"{mse:.6f}", f"{mae:.6f}", f"{r2:.4f}", 
-                              f"{np.mean(np.abs(actual_eval - pred_eval) <= 0.01)*100:.2f}%" if len(actual_eval) > 0 else "N/A"],
+                              f"{accuracy:.2f}%"],
                     'Status': ['Good' if mse < 0.001 else 'Acceptable' if mse < 0.01 else 'Poor',
                               'Good' if mae < 0.01 else 'Acceptable' if mae < 0.05 else 'Poor',
                               'Excellent' if r2 > 0.9 else 'Good' if r2 > 0.8 else 'Acceptable',
-                              'Excellent' if np.mean(np.abs(actual_eval - pred_eval) <= 0.01)*100 > 90 else 'Good'] if len(actual_eval) > 0 else ['N/A', 'N/A', 'N/A', 'N/A']
+                              'Excellent' if accuracy > 90 else 'Good'] 
                 })
                 st.dataframe(metrics_df, use_container_width=True)
             
             with col2:
                 # Prediction distribution
-                if len(actual_eval) > 0:
-                    error = np.abs(actual_eval - pred_eval)
+                if len(actual_test_inv) > 0:
+                    error = np.abs(actual_test_inv - predictions_on_test_inv)
                     fig_dist = go.Figure()
                     fig_dist.add_trace(go.Histogram(
                         x=error,
@@ -998,7 +1054,7 @@ def main_dashboard():
                         marker_color='rgba(46, 134, 171, 0.7)'
                     ))
                     fig_dist.update_layout(
-                        title="Prediction Error Distribution",
+                        title="Prediction Error Distribution (Test Set)",
                         xaxis_title="Absolute Error",
                         yaxis_title="Frequency",
                         template="plotly_white",
@@ -1006,7 +1062,7 @@ def main_dashboard():
                     )
                     st.plotly_chart(fig_dist, use_container_width=True)
                 else:
-                    st.warning("Not enough data to show error distribution.")
+                    st.warning("Not enough data to show error distribution on test set.")
             
             # Data table (if enabled)
             if show_detailed_table:
@@ -1023,6 +1079,9 @@ def main_dashboard():
                     'Status': ['Normal' if p < threshold else 'Critical' for p in full_pressures]
                 })
                 
+                # Format timestamp for display in the table
+                detailed_df['Timestamp'] = detailed_df['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S %Z%z')
+
                 # Pagination
                 if "page_num" not in st.session_state:
                     st.session_state.page_num = 0
@@ -1055,32 +1114,50 @@ def main_dashboard():
             # Export functionality
             st.markdown("### 📤 Data Export")
             
-            export_df = pd.DataFrame({
-                'Timestamp_Actual': pred_timestamps_eval,
-                'Actual_Pressure': actual_eval,
-                'Predicted_Pressure': pred_eval,
-                'Absolute_Error': np.abs(actual_eval - pred_eval),
-                'Status': ['Critical' if p > threshold else 'Normal' for p in actual_eval]
+            # Untuk export, kita bisa gabungkan hasil prediksi pada test set dengan prediksi masa depan
+            # Atau, buat data frame baru yang lebih relevan untuk laporan.
+            # Saya akan membuat export_df yang jelas memisahkan historical (aktual) dan prediksi test/future.
+
+            export_df_actual = pd.DataFrame({
+                'Timestamp': timestamps_all[:train_size], # Data training historis
+                'Pressure_Actual': ground_truth_all[:train_size],
+                'Pressure_Predicted_On_Historical': np.nan, # Tidak ada prediksi untuk ini di sini
+                'Type': 'Historical_Train',
+                'Status': ['Normal' if p < threshold else 'Critical' for p in ground_truth_all[:train_size]]
             })
 
-            # Tambahkan data prediksi masa depan ke export_df
-            future_export_df = pd.DataFrame({
-                'Timestamp_Actual': future_timestamps,
-                'Actual_Pressure': np.nan, # Tidak ada aktual untuk masa depan
-                'Predicted_Pressure': future_predictions_inv,
-                'Absolute_Error': np.nan,
-                'Status': ['Critical' if p > threshold else 'Normal' for p in future_predictions_inv]
+            export_df_test_pred = pd.DataFrame({
+                'Timestamp': test_timestamps,
+                'Pressure_Actual': actual_test_inv,
+                'Pressure_Predicted_On_Test': predictions_on_test_inv,
+                'Absolute_Error_Test': np.abs(actual_test_inv - predictions_on_test_inv),
+                'Type': 'Historical_Test_Prediction',
+                'Status': ['Normal' if p < threshold else 'Critical' for p in actual_test_inv]
             })
-            export_df = pd.concat([export_df, future_export_df], ignore_index=True)
+
+            future_export_df = pd.DataFrame({
+                'Timestamp': future_timestamps,
+                'Pressure_Actual': np.nan, 
+                'Pressure_Predicted_Future': future_predictions_inv,
+                'Absolute_Error_Future': np.nan, 
+                'Type': 'Future_Prediction',
+                'Status': ['Normal' if p < threshold else 'Critical' for p in future_predictions_inv]
+            })
+
+            # Gabungkan semua DataFrame
+            export_df_combined = pd.concat([export_df_actual, export_df_test_pred, future_export_df], ignore_index=True)
             
+            # Format timestamp columns for export
+            export_df_combined['Timestamp'] = export_df_combined['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S %Z%z')
+
             col_export_1, col_export_2 = st.columns(2)
             
             with col_export_1:
-                csv_data = export_df.to_csv(index=False).encode('utf-8')
+                csv_data = export_df_combined.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📊 Download Analysis Report (CSV)",
                     data=csv_data,
-                    file_name=f"gas_removal_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"gas_removal_analysis_{get_current_localized_time().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
             
@@ -1088,27 +1165,28 @@ def main_dashboard():
                 # Generate summary report
                 report_text = f"""
 Industrial Gas Removal System - Analysis Report
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Generated: {get_current_localized_time().strftime('%Y-%m-%d %H:%M:%S %Z%z')}
 
 SYSTEM STATUS: {system_status}
 Current Pressure: {current_pressure:.4f}
 Critical Threshold: {threshold:.4f}
 
-MODEL PERFORMANCE:
+MODEL PERFORMANCE (On Test Set):
 - R² Score: {r2:.4f}
 - Mean Absolute Error: {mae:.6f}
 - Mean Squared Error: {mse:.6f}
+- Accuracy (±{accuracy_tolerance}): {accuracy:.2f}%
 
 DATA SOURCE:
 - File: {CSV_FILE_NAME}
-- Last Updated: {st.session_state.last_update_time.strftime('%Y-%m-%d %H:%M:%S')}
+- Last Updated: {st.session_state.last_update_time.strftime('%Y-%m-%d %H:%M:%S %Z%z')}
 - Auto-Update: {'Enabled' if st.session_state.auto_update_enabled else 'Disabled'}
 - Update Interval: {st.session_state.get('selected_interval_label', '3 hours')}
 
 MAINTENANCE RECOMMENDATION:
 {
 "Immediate maintenance required - System critical!" if system_status == "CRITICAL" else
-"Schedule maintenance within 24 hours" + (f" (Predicted breach by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M')})" if predicted_breach_time else "") if system_status == "WARNING" else
+"Schedule maintenance within 24 hours" + (f" (Predicted breach by: {predicted_breach_time.strftime('%Y-%m-%d %H:%M %Z%z')})" if predicted_breach_time else "") if system_status == "WARNING" else
 "No immediate maintenance required"
 }
                 """
@@ -1116,7 +1194,7 @@ MAINTENANCE RECOMMENDATION:
                 st.download_button(
                     label="📄 Download Summary Report (TXT)",
                     data=report_text,
-                    file_name=f"gas_removal_summary_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    file_name=f"gas_removal_summary_report_{get_current_localized_time().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain"
                 )
 
